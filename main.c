@@ -1,4 +1,5 @@
-extern void _estack(void);  // Defined in link.ld
+extern void _estack(void);// Defined in link.ld
+extern void _reset(void);//Defined in link.ld
 
 // 16 standard and 96 STM32-specific handlers
 __attribute__((section(".vectors"))) void (*const tab[16 + 96])(void) = {
