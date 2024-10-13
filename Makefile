@@ -1,4 +1,4 @@
-CFLAGS ?= -std=c99, -Wall, -mcpu=cortex-m4
+CFLAGS ?= -std=c99 -Wall -mcpu=cortex-m4
 LDFLAGS ?= -Tlink.ld -nostartfiles -nostdlib --specs nano.specs -lc -lgcc -Wl,--gc-sections -Wl,-Map=$@.map
 SOURCES = main.c
 
