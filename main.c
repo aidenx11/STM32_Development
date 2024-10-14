@@ -49,7 +49,7 @@ enum { GPIO_MODE_INPUT, GPIO_MODE_OUTPUT, GPIO_MODE_AF, GPIO_MODE_ANALOG };
 
 /**
  * Sets the mode for the given pin, using the modes from the gpio struct.
- *
+ * 
  * @param pin pin to set mode for
  * @param mode mode to set
  */
