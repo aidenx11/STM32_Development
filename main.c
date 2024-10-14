@@ -1,3 +1,14 @@
+/**
+ * @file main.c
+ *
+ * @author Aiden Schroeder
+ * @author cpq, from https://github.com/cpq/bare-metal-programming-guide?tab=readme-ov-file
+ *         Protected under the MIT license
+ *
+ * Contains the main function. Has some library code which will be abstracted later,
+ * and a main function to flash an LED on an STM32-F446RE MCU
+ */
+
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -6,67 +17,130 @@
 #define PINNO(pin) (pin & 255)
 #define PINBANK(pin) (pin >> 8)
 
+/**
+ * Struct to store Reset and Clock Control unit registers. On STM32 MCU's, 
+ * the peripherals are disabled by default and must be clocked to activate
+ */
 struct rcc {
-  volatile uint32_t CR, PLLCFGR, CFGR, CIR, AHB1RSTR, AHB2RSTR, AHB3RSTR,
-      RESERVED0, APB1RSTR, APB2RSTR, RESERVED1[2], AHB1ENR, AHB2ENR, AHB3ENR,
-      RESERVED2, APB1ENR, APB2ENR, RESERVED3[2], AHB1LPENR, AHB2LPENR,
-      AHB3LPENR, RESERVED4, APB1LPENR, APB2LPENR, RESERVED5[2], BDCR, CSR,
-      RESERVED6[2], SSCGR, PLLI2SCFGR;
+    volatile uint32_t CR, PLLCFGR, CFGR, CIR, AHB1RSTR, AHB2RSTR, AHB3RSTR,
+        RESERVED0, APB1RSTR, APB2RSTR, RESERVED1[2], AHB1ENR, AHB2ENR, AHB3ENR,
+        RESERVED2, APB1ENR, APB2ENR, RESERVED3[2], AHB1LPENR, AHB2LPENR,
+        AHB3LPENR, RESERVED4, APB1LPENR, APB2LPENR, RESERVED5[2], BDCR, CSR,
+        RESERVED6[2], SSCGR, PLLI2SCFGR;
 };
+
+/** Gives the location to the given rcc register */
 #define RCC ((struct rcc *) 0x40023800)
 
+/**
+ * Struct for the different registers in the gpio register
+ */
 struct gpio {
-  volatile uint32_t MODER, OTYPER, OSPEEDR, PUPDR, IDR, ODR, BSRR, LCKR, AFR[2];
+    volatile uint32_t MODER, OTYPER, OSPEEDR, PUPDR, IDR, ODR, BSRR, LCKR, AFR[2];
 };
+
 #define GPIO(bank) ((struct gpio *) (0x40020000 + 0x400 * (bank)))
 
-// Enum values are per datasheet: 0, 1, 2, 3
+/**
+ * Values for modes to set for GPIO pins. Correspond to default
+ * enum values (0, 1, 2, 3)
+ */
 enum { GPIO_MODE_INPUT, GPIO_MODE_OUTPUT, GPIO_MODE_AF, GPIO_MODE_ANALOG };
 
+/**
+ * Sets the mode for the given pin, using the modes from the gpio struct.
+ *
+ * @param pin pin to set mode for
+ * @param mode mode to set
+ */
 static inline void gpio_set_mode(uint16_t pin, uint8_t mode) {
-  struct gpio *gpio = GPIO(PINBANK(pin));  // GPIO bank
-  int n = PINNO(pin);                      // Pin number
-  gpio->MODER &= ~(3U << (n * 2));         // Clear existing setting
-  gpio->MODER |= (mode & 3) << (n * 2);    // Set new mode
+    struct gpio *gpio = GPIO(PINBANK(pin));  // GPIO bank
+    int n = PINNO(pin);                      // Pin number
+    gpio->MODER &= ~(3U << (n * 2));         // Clear existing setting
+    gpio->MODER |= (mode & 3) << (n * 2);    // Set new mode
 }
 
+/**
+ * Sets the given pin to either high or low based on val.
+ *
+ * @param pin pin to set
+ * @param val false to set pin low, true to set pin high
+ */
 static inline void gpio_write(uint16_t pin, bool val) {
-        struct gpio *gpio = GPIO(PINBANK(pin));
-        gpio->BSRR = (1U << PINNO(pin)) << (val ? 0 : 16);
+    struct gpio *gpio = GPIO(PINBANK(pin));
+    gpio->BSRR = (1U << PINNO(pin)) << (val ? 0 : 16);
 }
 
+/**
+ * Delays processing by count. As of now, a clock is not used so values
+ * are not precise.
+ *
+ * @param count time to count down from (in operations)
+ */
 static inline void spin(volatile uint32_t count) {
-        while (count--) (void) 0;
+    while (count--) (void) 0;
 }
 
+/**
+ * Starting point for the MCU. As of now, initializes the GPIO clock for
+ * the green user LED (LD2) at A5, sets it to output mode, and writes high
+ * and low alternating with a delay to flash the LED.
+ *
+ * @return program exit status
+ */
 int main(void) {
-  uint16_t led = PIN('A', 5);            // Blue LED
-  RCC->AHB1ENR |= BIT(PINBANK(led));     // Enable GPIO clock for LED
-  gpio_set_mode(led, GPIO_MODE_OUTPUT);  // Set blue LED to output mode
-  for (;;) {
-      gpio_write(led, true);
-      spin(999999);
-      gpio_write(led, false);
-      spin(999999);
-  } 
-  return 0;
+    uint16_t led = PIN('A', 5);            // User LED (LD2)
+    RCC->AHB1ENR |= BIT(PINBANK(led));     // Enable GPIO clock for LED
+    gpio_set_mode(led, GPIO_MODE_OUTPUT);  // Set LED to output mode
+    for (;;) {
+        gpio_write(led, true);
+        spin(999999);
+        gpio_write(led, false);
+        spin(999999);
+    } 
+    return 0;
 }
 
-// Startup code
+/**
+ * Reset function for the MCU. Declares values for the start and end of
+ * the .bss section (which holds uninitialized global variables), start and end
+ * of the .data section (for flash memory), and the start address of the 
+ * data to be copied to data, in that order.
+ *
+ * Then, the function clears the .bss section, then copies the data from flash
+ * memory to the .data section in RAM. Finally, it calls the main function to 
+ * start the code to control the MCU.
+ *
+ * The attribute naked means there will be no pro/epilogue code generated by 
+ * GCC, and noreturn means the function never returns. These make sure that the 
+ * function is as low level as possible, since it is flashed.
+ */
 __attribute__((naked, noreturn)) void _reset(void) {
-  // memset .bss to zero, and copy .data section to RAM region
-  extern long _sbss, _ebss, _sdata, _edata, _sidata;
-  for (long *dst = &_sbss; dst < &_ebss; dst++) *dst = 0;
-  for (long *dst = &_sdata, *src = &_sidata; dst < &_edata;) *dst++ = *src++;
+    // memset .bss to zero, and copy .data section to RAM region
+    extern long _sbss, _ebss, _sdata, _edata, _sidata;
+    
+    for (long *dst = &_sbss; dst < &_ebss; dst++) {
+        *dst = 0;
+    }
+    for (long *dst = &_sdata, *src = &_sidata; dst < &_edata;) {
+        *dst++ = *src++;
+    }
 
-  main();             // Call main()
-  for (;;) (void) 0;  // Infinite loop in the case if main() returns
+    main();
+
+    for (;;) {
+        (void) 0;  // Infinite loop in the case if main() returns
+    }
 }
 
 extern void _estack(void);// Defined in link.ld
-extern void _reset(void);//Defined in link.ld
 
-// 16 standard and 96 STM32-specific handlers
+/**
+ * Declaration and partial initialization for the vector table. Sets the size to the 16
+ * ARM specific exception handlers and the 96 additional STM32 specific interrupt handlers.
+ * Declares the first two indices to the _estack pointer (top of the stack) and _reset function
+ * (entry point for the MCU to boot) 
+ */
 __attribute__((section(".vectors"))) void (*const tab[16 + 96])(void) = {
   _estack, _reset
 };
