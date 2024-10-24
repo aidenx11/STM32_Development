@@ -61,7 +61,10 @@ static inline void gpio_set_mode(uint16_t pin, uint8_t mode) {
 }
 
 /**
- * Sets the given pin to either high or low based on val.
+ * Sets the given pin to either high or low based on val. in the BSRR
+ * register, bits 0-15 are used to set the pin to high, and bits
+ * 16-31 are used to reset the pins to low. These are atomic operations,
+ * so after being performed the bit that is set is automatically reset.
  *
  * @param pin pin to set
  * @param val false to set pin low, true to set pin high
